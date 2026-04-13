@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JARVIS - Study Assistant</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background: #000;
+            min-height: 100vh;
+            padding: 10px;
+        }
+        
+        #root {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 0.4; }
+            50% { opacity: 1; }
+        }
+        
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        @keyframes flip {
+            from { transform: rotateY(0deg); }
+            to { transform: rotateY(180deg); }
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="text/babel">
+        const { useState, useRef, useEffect } = React;
+
+        function JarvisStudyAssistant() {
+            const [activeTab, setActiveTab] = useState('chat');
+            const [messages, setMessages] = useState([]);
+            const [input, setInput] = useState('');
+            const [loading, setLoading] = useState(false);
+            const [isListening, setIsListening] = useState(false);
+            const [hasGreeted, setHasGreeted] = useState(false);
+            const messagesEndRef = useRef(null);
+            const recognitionRef = useRef(null);
+
+            // Flashcards
+            const [flashcards, setFlashcards] = useState([
+                { id: 1, question: 'What is photosynthesis?', answer: 'A process where plants convert sunlight into chemical energy using chlorophyll', subject: 'Biology' },
+                { id: 2, question: 'What is the capital of France?', answer: 'Paris - the City of Light', subject: 'Geography' },
+                { id: 3, question: 'What is the formula for area of circle?', answer: 'A = πr² (pi times radius squared)', subject: 'Mathematics' }
+            ]);
+            const [currentCardIndex, setCurrentCardIndex] = useState(0);
+            const [isFlipped, setIsFlipped] = useState(false);
+            const [newQuestion, setNewQuestion] = useState('');
+            const [newAnswer, setNewAnswer] = useState('');
+            const [newSubject, setNewSubject] = useState('');
+
+            // Quiz
+            const [quizzes, setQuizzes] = useState([
+                { id: 1, title: 'Biology Basics', questions: 5, score: null, subject: 'Biology' },
+                { id: 2, title: 'History Chapter 3', questions: 10, score: null, subject: 'History' }
+            ]);
+            const [quizMode, setQuizMode] = useState(null);
+            const [quizProgress, setQuizProgress] = useState(0);
+            const [quizScore, setQuizScore] = useState(0);
+
+            // Exam Prep
+            const [exams, setExams] = useState([
+                { id: 1, subject: 'Mathematics', date: '2024-05-15', topics: ['Algebra', 'Calculus'], readiness: 60 },
+                { id: 2, subject: 'Physics', date: '2024-05-20', topics: ['Mechanics', 'Thermodynamics'], readiness: 40 }
+            ]);
+
+            // Tasks
+            const [tasks, setTasks] = useState([
+                { id: 1, text: 'Complete Chapter 5 exercises', subject: 'Mathematics', done: false },
+                { id: 2, text: 'Review photosynthesis notes', subject: 'Biology', done: false }
+            ]);
+            const [newTask, setNewTask] = useState('');
+
+            // Timer
+            const [timerSeconds, setTimerSeconds] = useState(1500);
+            const [isTimerRunning, setIsTimerRunning] = useState(false);
+
+            // Initialize speech recognition
+            useEffect(() => {
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                if (SpeechRecognition) {
+                    recognitionRef.current = new SpeechRecognition();
+                    recognitionRef.current.continuous = false;
+                    recognitionRef.current.interimResults = false;
+
+                    recognitionRef.current.onresult = (event) => {
+                        const transcript = Array.from(event.results)
+                            .map(result => result[0].transcript)
+                            .join('');
+                        setInput(transcript);
+                        setIsListening(false);
+                    };
+
+                    recognitionRef.current.onerror = () => {
+                        setIsListening(false);
+                    };
+                }
+            }, []);
+
+            // Initial greeting
+            useEffect(() => {
+                if (!hasGreeted) {
+                    setTimeout(() => {
+                        const greeting = "Good morning. I am JARVIS, your advanced study assistant. Welcome. How may I assist you with your studies today?";
+                        setMessages([{
+                            id: 1,
+                            type: 'jarvis',
+                            text: greeting,
+                            timestamp: new Date()
+                        }]);
+                        speak(greeting);
+                        setHasGreeted(true);
+                    }, 800);
+                }
+            }, [hasGreeted]);
+
+            // Timer effect
+            useEffect(() => {
+                let interval;
+                if (isTimerRunning && timerSeconds > 0) {
+                    interval = setInterval(() => setTimerSeconds(s => s - 1), 1000);
+                } else if (timerSeconds === 0 && isTimerRunning) {
+                    setIsTimerRunning(false);
+                    speak("Your study session is complete. Well done.");
+                }
+                return () => clearInterval(interval);
+            }, [isTimerRunning, timerSeconds]);
+
+            const scrollToBottom = () => {
+                messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+            };
+
+            useEffect(() => {
+                scrollToBottom();
+            }, [messages]);
+
+            const speak = (text) => {
+                if ('speechSynthesis' in window) {
+                    speechSynthesis.cancel();
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    utterance.rate = 0.9;
+                    utterance.pitch = 1;
+                    speechSynthesis.speak(utterance);
+                }
+            };
+
+            const startListening = () => {
+                if (recognitionRef.current) {
+                    setIsListening(true);
+                    recognitionRef.current.start();
+                }
+            };
+
+            const getStudyResponse = async (userMessage) => {
+                try {
+                    const response = await fetch('https://api.anthropic.com/v1/messages', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            model: 'claude-sonnet-4-20250514',
+                            max_tokens: 1000,
+                            system: `You are JARVIS, a sophisticated AI study assistant with a refined British accent. Be helpful, clear, and encouraging. Keep responses concise (2-3 sentences). You can explain concepts, generate quiz questions, suggest study tips, and help with exam preparation.`,
+                            messages: [{ role: 'user', content: userMessage }]
+                        })
+                    });
+
+                    const data = await response.json();
+                    return data.content?.[0]?.text || "I apologize for the delay.";
+                } catch (error) {
+                    return "Let me retry that for you.";
+                }
+            };
+
+            const handleSendMessage = async () => {
+                if (!input.trim()) return;
+
+                const userMessage = input.trim();
+                setInput('');
+                setLoading(true);
+
+                setMessages(prev => [...prev, {
+                    id: Date.now(),
+                    type: 'user',
+                    text: userMessage,
+                    timestamp: new Date()
+                }]);
+
+                const jarvisResponse = await getStudyResponse(userMessage);
+                speak(jarvisResponse);
+
+                setMessages(prev => [...prev, {
+                    id: Date.now() + 1,
+                    type: 'jarvis',
+                    text: jarvisResponse,
+                    timestamp: new Date()
+                }]);
+
+                setLoading(false);
+            };
+
+            const handleKeyPress = (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendMessage();
+                }
+            };
+
+            const formatTime = (seconds) => {
+                const mins = Math.floor(seconds / 60);
+                const secs = seconds % 60;
+                return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+            };
+
+            const addFlashcard = (e) => {
+                e.preventDefault();
+                if (newQuestion.trim() && newAnswer.trim()) {
+                    setFlashcards([...flashcards, {
+                        id: Date.now(),
+                        question: newQuestion,
+                        answer: newAnswer,
+                        subject: newSubject || 'General'
+                    }]);
+                    setNewQuestion('');
+                    setNewAnswer('');
+                    setNewSubject('');
+                    speak("Flashcard added");
+                }
+            };
+
+            const addTask = (e) => {
+                e.preventDefault();
+                if (newTask.trim()) {
+                    setTasks([...tasks, {
+                        id: Date.now(),
+                        text: newTask,
+                        subject: 'General',
+                        done: false
+                    }]);
+                    setNewTask('');
+                    speak("Task added");
+                }
+            };
+
+            return (
+                <div style={{
+                    width: '100%',
+                    maxWidth: '1000px',
+                    height: '95vh',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    background: '#0a0a0a',
+                    borderRadius: '16px',
+                    overflow: 'hidden',
+                    border: '1px solid #222',
+                    boxShadow: '0 20px 60px rgba(0,0,0,0.8)'
+                }}>
+                    {/* Header */}
+                    <div style={{
+                        background: 'linear-gradient(90deg, #1a1a1a 0%, #0f0f0f 100%)',
+                        borderBottom: '1px solid #222',
+                        padding: '16px 20px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px'
+                    }}>
+                        <span style={{ fontSize: '24px' }}>🤖</span>
+                        <div>
+                            <div style={{ color: '#fff', fontSize: '14px', fontWeight: '600', letterSpacing: '0.5px' }}>
+                                JARVIS
+                            </div>
+                            <div style={{ color: '#888', fontSize: '11px' }}>Advanced Study Assistant</div>
+                        </div>
+                        <div style={{ flex: 1 }} />
+                        {isListening && (
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                color: '#ff4444',
+                                fontSize: '12px'
+                            }}>
+                                <div style={{
+                                    width: '8px', height: '8px', borderRadius: '50%',
+                                    background: '#ff4444', animation: 'pulse 1s infinite'
+                                }} />
+                                Listening
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Tabs */}
+                    <div style={{
+                        display: 'flex',
+                        borderBottom: '1px solid #222',
+                        background: '#0f0f0f',
+                        overflowX: 'auto',
+                        padding: '0 8px'
+                    }}>
+                        {[
+                            { id: 'chat', icon: '💬', label: 'Chat' },
+                            { id: 'flashcards', icon: '📇', label: 'Flashcards' },
+                            { id: 'quiz', icon: '📝', label: 'Quiz' },
+                            { id: 'exam', icon: '🎓', label: 'Exam' },
+                            { id: 'tasks', icon: '✅', label: 'Tasks' },
+                            { id: 'timer', icon: '⏱️', label: 'Timer' }
+                        ].map(tab => (
+                            <button
+                                key={tab.id}
+                                onClick={() => setActiveTab(tab.id)}
+                                style={{
+                                    padding: '12px 16px',
+                                    background: activeTab === tab.id ? '#1a1a1a' : 'transparent',
+                                    border: 'none',
+                                    color: activeTab === tab.id ? '#fff' : '#666',
+                                    fontSize: '13px',
+                                    fontWeight: '500',
+                                    cursor: 'pointer',
+                                    borderBottom: activeTab === tab.id ? '2px solid #fff' : '2px solid transparent',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    whiteSpace: 'nowrap',
+                                    transition: 'all 0.2s'
+                                }}
+                            >
+                                <span style={{ fontSize: '16px' }}>{tab.icon}</span>
+                                {tab.label}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Content */}
+                    <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', background: '#000' }}>
+                        
+                        {/* Chat Tab */}
+                        {activeTab === 'chat' && (
+                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                                <div style={{ flex: 1, padding: '20px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                    {messages.map(msg => (
+                                        <div key={msg.id} style={{ display: 'flex', justifyContent: msg.type === 'user' ? 'flex-end' : 'flex-start', animation: 'slideIn 0.3s ease-out' }}>
+                                            <div style={{
+                                                maxWidth: '65%',
+                                                padding: '12px 16px',
+                                                borderRadius: '12px',
+                                                background: msg.type === 'user' ? '#1a1a1a' : '#1a1a1a',
+                                                border: `1px solid ${msg.type === 'user' ? '#333' : '#222'}`,
+                                                color: msg.type === 'user' ? '#fff' : '#ccc',
+                                                fontSize: '13px',
+                                                lineHeight: '1.6'
+                                            }}>
+                                                {msg.text}
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {loading && (
+                                        <div style={{ display: 'flex', gap: '6px', paddingLeft: '12px' }}>
+                                            {[0, 1, 2].map(i => (
+                                                <div key={i} style={{
+                                                    width: '8px', height: '8px', borderRadius: '50%',
+                                                    background: '#555', animation: 'pulse 1s infinite',
+                                                    animationDelay: `${i * 0.2}s`
+                                                }} />
+                                            ))}
+                                        </div>
+                                    )}
+                                    <div ref={messagesEndRef} />
+                                </div>
+                                <div style={{ borderTop: '1px solid #222', padding: '16px', background: '#0a0a0a', display: 'flex', gap: '8px' }}>
+                                    <input
+                                        type="text"
+                                        value={input}
+                                        onChange={(e) => setInput(e.target.value)}
+                                        onKeyPress={handleKeyPress}
+                                        placeholder="Ask anything..."
+                                        disabled={loading}
+                                        style={{
+                                            flex: 1, padding: '10px 14px', background: '#1a1a1a',
+                                            border: '1px solid #333', borderRadius: '8px',
+                                            color: '#fff', fontSize: '13px', fontFamily: 'inherit'
+                                        }}
+                                    />
+                                    <button
+                                        onClick={startListening}
+                                        title="Voice input"
+                                        style={{
+                                            padding: '10px 14px', background: isListening ? '#ff4444' : '#1a1a1a',
+                                            border: `1px solid ${isListening ? '#ff4444' : '#333'}`,
+                                            borderRadius: '8px',
+                                            color: '#fff', cursor: 'pointer', fontSize: '16px'
+                                        }}
+                                    >
+                                        🎤
+                                    </button>
+                                    <button
+                                        onClick={handleSendMessage}
+                                        disabled={loading}
+                                        style={{
+                                            padding: '10px 14px', background: '#1a1a1a',
+                                            border: '1px solid #333', borderRadius: '8px',
+                                            color: '#fff', cursor: 'pointer', fontSize: '16px',
+                                            transition: 'all 0.2s'
+                                        }}
+                                    >
+                                        📤
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Flashcards Tab */}
+                        {activeTab === 'flashcards' && (
+                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '24px', gap: '20px', justifyContent: 'center' }}>
+                                {flashcards.length > 0 ? (
+                                    <div style={{ maxWidth: '600px', margin: '0 auto', width: '100%' }}>
+                                        {/* Flashcard */}
+                                        <div
+                                            onClick={() => setIsFlipped(!isFlipped)}
+                                            style={{
+                                                perspective: '1000px',
+                                                marginBottom: '24px',
+                                                cursor: 'pointer'
+                                            }}
+                                        >
+                                            <div style={{
+                                                padding: '40px 30px',
+                                                background: isFlipped ? '#1a4d7a' : '#1a1a1a',
+                                                border: '2px solid #333',
+                                                borderRadius: '16px',
+                                                minHeight: '280px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                textAlign: 'center',
+                                                transition: 'all 0.6s ease-in-out',
+                                                transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
+                                                transformStyle: 'preserve-3d'
+                                            }}>
+                                                <div style={{ color: '#fff', fontSize: '18px', lineHeight: '1.8', fontWeight: '500' }}>
+                                                    {isFlipped ? flashcards[currentCardIndex]?.answer : flashcards[currentCardIndex]?.question}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Card Info */}
+                                        <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+                                            <div style={{ color: '#888', fontSize: '13px', marginBottom: '4px' }}>
+                                                {isFlipped ? 'ANSWER' : 'QUESTION'}
+                                            </div>
+                                            <div style={{ color: '#ccc', fontSize: '14px', fontWeight: '500', marginBottom: '12px' }}>
+                                                {flashcards[currentCardIndex]?.subject}
+                                            </div>
+                                            <div style={{ color: '#666', fontSize: '12px' }}>
+                                                Card {currentCardIndex + 1} of {flashcards.length}
+                                            </div>
+                                        </div>
+
+                                        {/* Navigation */}
+                                        <div style={{ display: 'flex', gap: '10px' }}>
+                                            <button
+                                                onClick={() => {
+                                                    setCurrentCardIndex(Math.max(0, currentCardIndex - 1));
+                                                    setIsFlipped(false);
+                                                }}
+                                                disabled={currentCardIndex === 0}
+                                                style={{
+                                                    flex: 1, padding: '10px', background: '#1a1a1a',
+                                                    border: '1px solid #333', borderRadius: '8px',
+                                                    color: '#fff', cursor: 'pointer', fontSize: '13px',
+                                                    opacity: currentCardIndex === 0 ? 0.4 : 1
+                                                }}
+                                            >
+                                                ← Previous
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    setCurrentCardIndex(Math.min(flashcards.length - 1, currentCardIndex + 1));
+                                                    setIsFlipped(false);
+                                                }}
+                                                disabled={currentCardIndex === flashcards.length - 1}
+                                                style={{
+                                                    flex: 1, padding: '10px', background: '#1a1a1a',
+                                                    border: '1px solid #333', borderRadius: '8px',
+                                                    color: '#fff', cursor: 'pointer', fontSize: '13px',
+                                                    opacity: currentCardIndex === flashcards.length - 1 ? 0.4 : 1
+                                                }}
+                                            >
+                                                Next →
+                                            </button>
+                                        </div>
+                                    </div>
+                                ) : null}
+
+                                {/* Add Flashcard */}
+                                <div style={{ borderTop: '1px solid #222', paddingTop: '20px', maxWidth: '600px', margin: '0 auto', width: '100%' }}>
+                                    <h3 style={{ color: '#fff', fontSize: '13px', fontWeight: '600', marginBottom: '12px' }}>Add New Card</h3>
+                                    <form onSubmit={addFlashcard} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                        <input
+                                            type="text"
+                                            placeholder="Question..."
+                                            value={newQuestion}
+                                            onChange={(e) => setNewQuestion(e.target.value)}
+                                            style={{
+                                                padding: '10px 12px', background: '#1a1a1a',
+                                                border: '1px solid #333', borderRadius: '8px',
+                                                color: '#fff', fontSize: '12px'
+                                            }}
+                                        />
+                                        <textarea
+                                            placeholder="Answer..."
+                                            value={newAnswer}
+                                            onChange={(e) => setNewAnswer(e.target.value)}
+                                            style={{
+                                                padding: '10px 12px', background: '#1a1a1a',
+                                                border: '1px solid #333', borderRadius: '8px',
+                                                color: '#fff', fontSize: '12px',
+                                                minHeight: '60px', resize: 'vertical'
+                                            }}
+                                        />
+                                        <input
+                                            type="text"
+                                            placeholder="Subject (optional)..."
+                                            value={newSubject}
+                                            onChange={(e) => setNewSubject(e.target.value)}
+                                            style={{
+                                                padding: '10px 12px', background: '#1a1a1a',
+                                                border: '1px solid #333', borderRadius: '8px',
+                                                color: '#fff', fontSize: '12px'
+                                            }}
+                                        />
+                                        <button type="submit" style={{
+                                            padding: '10px 12px', background: '#1a1a1a',
+                                            border: '1px solid #333', borderRadius: '8px',
+                                            color: '#fff', cursor: 'pointer', fontWeight: '500', fontSize: '12px',
+                                            transition: 'all 0.2s'
+                                        }}>
+                                            + Add Card
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Quiz Tab */}
+                        {activeTab === 'quiz' && (
+                            <div style={{ flex: 1, padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                {quizzes.map(quiz => (
+                                    <div key={quiz.id} style={{
+                                        padding: '14px', background: '#1a1a1a',
+                                        border: '1px solid #333', borderRadius: '12px'
+                                    }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <div>
+                                                <div style={{ color: '#fff', fontWeight: '500', fontSize: '13px' }}>{quiz.title}</div>
+                                                <div style={{ color: '#888', fontSize: '11px', marginTop: '2px' }}>{quiz.subject} • {quiz.questions} questions</div>
+                                            </div>
+                                            <button style={{
+                                                padding: '8px 16px', background: '#1a4d7a',
+                                                border: '1px solid #2a6aaa', borderRadius: '6px',
+                                                color: '#fff', cursor: 'pointer', fontSize: '11px', fontWeight: '500'
+                                            }}>
+                                                Start
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* Exam Tab */}
+                        {activeTab === 'exam' && (
+                            <div style={{ flex: 1, padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                {exams.map(exam => (
+                                    <div key={exam.id} style={{
+                                        padding: '14px', background: '#1a1a1a',
+                                        border: '1px solid #333', borderRadius: '12px'
+                                    }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '10px' }}>
+                                            <div>
+                                                <div style={{ color: '#fff', fontWeight: '500', fontSize: '13px' }}>{exam.subject}</div>
+                                                <div style={{ color: '#888', fontSize: '11px', marginTop: '2px' }}>
+                                                    📅 {new Date(exam.date).toLocaleDateString()}
+                                                </div>
+                                            </div>
+                                            <div style={{ color: '#4da6ff', fontSize: '13px', fontWeight: '500' }}>
+                                                {exam.readiness}%
+                                            </div>
+                                        </div>
+                                        <div style={{
+                                            height: '6px', background: '#333', borderRadius: '3px',
+                                            overflow: 'hidden', marginBottom: '8px'
+                                        }}>
+                                            <div style={{
+                                                height: '100%', background: '#4da6ff', width: `${exam.readiness}%`
+                                            }} />
+                                        </div>
+                                        <div style={{ fontSize: '11px', color: '#666' }}>
+                                            {exam.topics.join(', ')}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* Tasks Tab */}
+                        {activeTab === 'tasks' && (
+                            <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                <form onSubmit={addTask} style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                                    <input
+                                        type="text"
+                                        value={newTask}
+                                        onChange={(e) => setNewTask(e.target.value)}
+                                        placeholder="Add a new task..."
+                                        style={{
+                                            flex: 1, padding: '10px 12px', background: '#1a1a1a',
+                                            border: '1px solid #333', borderRadius: '8px',
+                                            color: '#fff', fontSize: '12px'
+                                        }}
+                                    />
+                                    <button type="submit" style={{
+                                        padding: '10px 14px', background: '#1a1a1a',
+                                        border: '1px solid #333', borderRadius: '8px',
+                                        color: '#fff', cursor: 'pointer'
+                                    }}>
+                                        +
+                                    </button>
+                                </form>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                    {tasks.map(task => (
+                                        <div key={task.id} style={{
+                                            padding: '10px 12px', background: '#1a1a1a',
+                                            border: '1px solid #333', borderRadius: '8px',
+                                            display: 'flex', alignItems: 'center', gap: '8px'
+                                        }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={task.done}
+                                                onChange={() => setTasks(tasks.map(t => t.id === task.id ? { ...t, done: !t.done } : t))}
+                                                style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                                            />
+                                            <div style={{ flex: 1 }}>
+                                                <div style={{ color: task.done ? '#666' : '#ccc', fontSize: '12px', textDecoration: task.done ? 'line-through' : 'none' }}>
+                                                    {task.text}
+                                                </div>
+                                                <div style={{ color: '#666', fontSize: '10px', marginTop: '2px' }}>
+                                                    {task.subject}
+                                                </div>
+                                            </div>
+                                            <button
+                                                onClick={() => setTasks(tasks.filter(t => t.id !== task.id))}
+                                                style={{ background: 'transparent', border: 'none', color: '#666', cursor: 'pointer', fontSize: '14px' }}
+                                            >
+                                                ✕
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Timer Tab */}
+                        {activeTab === 'timer' && (
+                            <div style={{ flex: 1, padding: '20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '24px', justifyContent: 'center' }}>
+                                <div style={{
+                                    fontSize: '72px', fontWeight: '600', color: '#fff',
+                                    fontFamily: 'monospace', letterSpacing: '8px'
+                                }}>
+                                    {formatTime(timerSeconds)}
+                                </div>
+                                <div style={{ display: 'flex', gap: '12px' }}>
+                                    <button
+                                        onClick={() => setIsTimerRunning(!isTimerRunning)}
+                                        style={{
+                                            padding: '12px 28px', background: '#1a1a1a',
+                                            border: '1px solid #333', borderRadius: '8px',
+                                            color: '#fff', cursor: 'pointer', fontWeight: '500', fontSize: '13px'
+                                        }}
+                                    >
+                                        {isTimerRunning ? '⏸ Pause' : '▶ Start'}
+                                    </button>
+                                    <button
+                                        onClick={() => { setTimerSeconds(1500); setIsTimerRunning(false); }}
+                                        style={{
+                                            padding: '12px 28px', background: '#1a1a1a',
+                                            border: '1px solid #333', borderRadius: '8px',
+                                            color: '#fff', cursor: 'pointer', fontWeight: '500', fontSize: '13px'
+                                        }}
+                                    >
+                                        🔄 Reset
+                                    </button>
+                                </div>
+                                <div style={{ color: '#666', fontSize: '12px', textAlign: 'center' }}>
+                                    Pomodoro technique: 25 minutes of focused study
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        ReactDOM.render(<JarvisStudyAssistant />, document.getElementById('root'));
+    </script>
+</body>
+</html>
